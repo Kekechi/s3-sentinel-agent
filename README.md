@@ -1,0 +1,2 @@
+# s3-sentinel-agent
+To bridge the gap between autonomous AI agency and rigid enterprise security by building a stateful, S3-aware orchestrator that treats authorization as a structural constraint rather than a conversational suggestion. By implementing a non-LLM Gatekeeper node and human-in-the-loop breakpoints for high-stakes IAM and data operations, this project demonstrates a "Zero Trust" approach to AI tooling, ensuring that privileged actions are audited, persistent, and strictly role-bound.
