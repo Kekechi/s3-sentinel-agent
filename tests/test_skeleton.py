@@ -12,9 +12,10 @@ def test_agent_state_instantiation():
         "messages": [],
         "is_policy_exposed": False,
         "is_human_approved": False,
+        "is_blocked": True,
         "role": "admin",
     }
-    assert set(state.keys()) == {"messages", "is_policy_exposed", "is_human_approved", "role"}
+    assert set(state.keys()) == {"messages", "is_policy_exposed", "is_human_approved", "is_blocked", "role"}
     assert state["is_policy_exposed"] is False
     assert state["is_human_approved"] is False
     assert state["role"] == "admin"
@@ -38,6 +39,7 @@ def test_hello_routing(build_graph):
             "messages": [HumanMessage(content="Hello")],
             "is_policy_exposed": False,
             "is_human_approved": False,
+            "is_blocked": True,
             "role": "admin",
         }
     )
@@ -51,6 +53,7 @@ def test_route_after_assistant_no_tools():
         "messages": [AIMessage(content="Just a greeting.")],
         "is_policy_exposed": False,
         "is_human_approved": False,
+        "is_blocked": True,
         "role": "admin",
     }
     assert route_after_assistant(state) == END
@@ -65,6 +68,7 @@ def test_route_after_assistant_with_tools():
         "messages": [ai_msg],
         "is_policy_exposed": False,
         "is_human_approved": False,
+        "is_blocked": True,
         "role": "admin",
     }
     assert route_after_assistant(state) == "GatekeeperNode"

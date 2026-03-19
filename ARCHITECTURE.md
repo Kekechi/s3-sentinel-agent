@@ -4,21 +4,23 @@ This document serves as the **Anchor**. All code implementation must fit into th
 
 ## **1\. Folder Hierarchy**
 
-s3-sentinel-graph/  
-├── cmd/                   \# Entry points  
-│   └── main.py            \# Graph initialization & CLI loop  
-├── src/  
-│   ├── graph/             \# The "Brain" (Logic Authority)  
-│   │   ├── state.py       \# AgentState TypedDict definition  
-│   │   ├── nodes.py       \# Assistant, Gatekeeper, and Tool nodes  
-│   │   └── edges.py       \# Routing logic (Conditional & Fixed)  
-│   ├── tools/             \# The "Hands" (Action)  
-│   │   └── s3\_tools.py    \# Boto3-wrapped S3 operations  
-│   └── core/              \# The "Rules" (Config)  
-│       └── security.py    \# Role definitions and IAM-like constants  
-├── tests/                 \# The "Shield"  
-│   └── test\_gates.py      \# Security boundary unit tests  
-├── docker-compose.yml     \# MinIO & Local Stack setup  
+s3-sentinel-graph/
+├── cmd/                   \# Entry points
+│   └── main.py            \# Graph initialization & CLI loop (--role support)
+├── src/
+│   ├── graph/             \# The "Brain" (Logic Authority)
+│   │   ├── state.py       \# AgentState TypedDict definition (5 fields)
+│   │   ├── nodes.py       \# Assistant, Gatekeeper, and Tool nodes
+│   │   └── edges.py       \# Routing logic (Conditional & Fixed)
+│   ├── tools/             \# The "Hands" (Action)
+│   │   └── s3\_tools.py    \# Boto3-wrapped S3 operations
+│   └── core/              \# The "Rules" (Config)
+│       └── security.py    \# Role definitions and IAM-like constants
+├── tests/                 \# The "Shield"
+│   ├── conftest.py        \# Shared fixtures (build\_graph via importlib)
+│   ├── test\_skeleton.py   \# M1 structural tests (state, compilation, routing)
+│   └── test\_gates.py      \# M2 security boundary tests (gatekeeper cases, edge routing)
+├── docker-compose.yml     \# MinIO & Local Stack setup
 └── .env                   \# Secrets (API Keys, MinIO Credentials)
 
 ## **2\. Data Flow & Boundary Map**

@@ -1,3 +1,5 @@
+import sys
+
 from langchain_core.messages import HumanMessage
 from langgraph.graph import END, StateGraph
 
@@ -24,7 +26,7 @@ def build_graph() -> StateGraph:
     graph.add_conditional_edges(
         "GatekeeperNode",
         route_after_gatekeeper,
-        {"S3ToolNode": "S3ToolNode"},
+        {"S3ToolNode": "S3ToolNode", "AssistantNode": "AssistantNode"},
     )
     graph.add_edge("S3ToolNode", "AssistantNode")
 
@@ -33,7 +35,12 @@ def build_graph() -> StateGraph:
 
 def main():
     app = build_graph()
-    print("S3 Sentinel Agent (type 'quit' to exit)")
+
+    role = "admin"
+    if "--role" in sys.argv:
+        role = sys.argv[sys.argv.index("--role") + 1]
+
+    print(f"S3 Sentinel Agent (role={role}, type 'quit' to exit)")
 
     while True:
         user_input = input("\nYou: ").strip()
@@ -45,7 +52,8 @@ def main():
                 "messages": [HumanMessage(content=user_input)],
                 "is_policy_exposed": False,
                 "is_human_approved": False,
-                "role": "admin",
+                "is_blocked": True,
+                "role": role,
             }
         )
 

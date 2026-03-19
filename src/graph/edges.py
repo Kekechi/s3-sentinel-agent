@@ -12,5 +12,7 @@ def route_after_assistant(state: AgentState) -> str:
 
 
 def route_after_gatekeeper(state: AgentState) -> str:
-    """Stub: always route to S3ToolNode. Security branching added in M2."""
+    """Route based on gatekeeper decision: blocked → AssistantNode, authorized → S3ToolNode."""
+    if state.get("is_blocked", True):
+        return "AssistantNode"
     return "S3ToolNode"
