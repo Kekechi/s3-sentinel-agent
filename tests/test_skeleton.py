@@ -13,12 +13,10 @@ def test_agent_state_instantiation():
         "is_policy_exposed": False,
         "is_human_approved": False,
         "is_blocked": True,
-        "role": "admin",
     }
-    assert set(state.keys()) == {"messages", "is_policy_exposed", "is_human_approved", "is_blocked", "role"}
+    assert set(state.keys()) == {"messages", "is_policy_exposed", "is_human_approved", "is_blocked"}
     assert state["is_policy_exposed"] is False
     assert state["is_human_approved"] is False
-    assert state["role"] == "admin"
 
 
 # --- 7.2: Graph compiles ---
@@ -34,14 +32,15 @@ def test_graph_compiles(build_graph):
 @pytest.mark.integration
 def test_hello_routing(build_graph):
     app = build_graph()
+    config = {"configurable": {"role": "admin"}}
     result = app.invoke(
         {
             "messages": [HumanMessage(content="Hello")],
             "is_policy_exposed": False,
             "is_human_approved": False,
             "is_blocked": True,
-            "role": "admin",
-        }
+        },
+        config=config,
     )
     assert len(result["messages"]) >= 2, "Expected at least the input + an AI reply"
     assert result["messages"][-1].content, "Final message should have content"
@@ -54,7 +53,6 @@ def test_route_after_assistant_no_tools():
         "is_policy_exposed": False,
         "is_human_approved": False,
         "is_blocked": True,
-        "role": "admin",
     }
     assert route_after_assistant(state) == END
 
@@ -69,6 +67,5 @@ def test_route_after_assistant_with_tools():
         "is_policy_exposed": False,
         "is_human_approved": False,
         "is_blocked": True,
-        "role": "admin",
     }
     assert route_after_assistant(state) == "GatekeeperNode"

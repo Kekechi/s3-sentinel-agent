@@ -8,4 +8,3 @@ class AgentState(TypedDict):
     is_policy_exposed: bool
     is_human_approved: bool
     is_blocked: bool
-    role: str

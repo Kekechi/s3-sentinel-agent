@@ -2,7 +2,9 @@ import os
 
 from dotenv import load_dotenv
 from langchain_core.messages import ToolMessage
+from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
+from langgraph.types import interrupt
 
 from src.core.security import SENSITIVE_TOOLS
 from src.graph.state import AgentState
@@ -26,15 +28,15 @@ def AssistantNode(state: AgentState) -> dict:
     return {"messages": [response]}
 
 
-def GatekeeperNode(state: AgentState) -> dict:
+def GatekeeperNode(state: AgentState, config: RunnableConfig) -> dict:
     """Inspect pending tool_calls and enforce role-based access control.
 
-    Case A: Guest + sensitive tool → block with Security Violation.
-    Case B: Admin + sensitive tool + no approval → block (HITL stub for M3).
-    Case C: Authorized → pass through to S3ToolNode.
+    Case A: Guest/user + sensitive tool → block with Security Violation.
+    Case B: Admin + sensitive tool → interrupt for HITL approval.
+    Case C: Authorized (non-sensitive or admin-approved) → pass through to S3ToolNode.
     """
     last_message = state["messages"][-1]
-    role = state["role"]
+    role = config.get("configurable", {}).get("role", "user")
     is_blocked = False
     results = []
 
@@ -48,18 +50,24 @@ def GatekeeperNode(state: AgentState) -> dict:
                     )
                 )
                 is_blocked = True
-            elif role == "admin" and not state.get("is_human_approved", False):
-                results.append(
-                    ToolMessage(
-                        content="Action requires human approval.",
-                        tool_call_id=tool_call["id"],
+            elif role == "admin":
+                human_decision = interrupt({
+                    "tool_name": tool_call["name"],
+                    "tool_args": tool_call["args"],
+                    "message": "Admin approval required for sensitive operation.",
+                })
+                if not human_decision:
+                    results.append(
+                        ToolMessage(
+                            content="Admin denied the action.",
+                            tool_call_id=tool_call["id"],
+                        )
                     )
-                )
-                is_blocked = True
+                    is_blocked = True
 
     if is_blocked:
         return {"messages": results, "is_blocked": True}
-    return {"is_blocked": False}
+    return {"is_blocked": False, "is_human_approved": True}
 
 
 def S3ToolNode(state: AgentState) -> dict:
@@ -75,4 +83,4 @@ def S3ToolNode(state: AgentState) -> dict:
                 tool_call_id=tool_call["id"],
             )
         )
-    return {"messages": results}
+    return {"messages": results, "is_human_approved": False}
