@@ -1,6 +1,7 @@
 import uuid
 
 import pytest
+from botocore.exceptions import ClientError
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.types import Command
@@ -106,6 +107,33 @@ class TestAdminInterrupt:
             final_state = app.get_state(config)
             assert final_state.values["is_human_approved"] is False, \
                 "is_human_approved should reset to False after tool execution"
+
+
+    def test_admin_untagged_bucket_skips_interrupt(self, build_graph, mock_s3_client):
+        """Admin + sensitive tool on untagged bucket → graph does NOT pause."""
+        mock_s3_client.get_bucket_tagging.side_effect = ClientError(
+            {"Error": {"Code": "NoSuchTagSet", "Message": "The TagSet does not exist"}},
+            "GetBucketTagging",
+        )
+        with SqliteSaver.from_conn_string(":memory:") as checkpointer:
+            config = _admin_config()
+            app = build_graph(checkpointer=checkpointer)
+
+            ai_msg = AIMessage(
+                content="",
+                tool_calls=[{"id": "call_1", "name": "get_bucket_policy", "args": {"bucket_name": "public-data"}}],
+            )
+            input_state = {
+                "messages": [HumanMessage(content="get policy"), ai_msg],
+                "is_policy_exposed": False,
+                "is_human_approved": False,
+                "is_blocked": True,
+            }
+            app.update_state(config, input_state, as_node="AssistantNode")
+
+            result, state, interrupted = _invoke_and_check_interrupt(app, None, config)
+            assert not interrupted, "Untagged bucket should NOT trigger interrupt"
+            assert result["is_blocked"] is False
 
 
 class TestCheckpointerPersistence:
