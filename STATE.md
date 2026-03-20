@@ -16,7 +16,7 @@ Replaced the Case B dead-end stub with a real Human-In-The-Loop flow using LangG
 | `requirements.txt` | Added `langgraph-checkpoint-sqlite>=2.0.0` |
 | `src/graph/state.py` | Removed `role: str` field (5 → 4 fields) |
 | `src/graph/nodes.py` | `GatekeeperNode` takes `config: RunnableConfig`; Case B replaced with `interrupt()`; approved path sets `is_human_approved: True`; `S3ToolNode` resets `is_human_approved: False` |
-| `cmd/main.py` | `build_graph()` accepts optional `checkpointer`; `main()` uses `SqliteSaver`, `thread_id` + `role` in config, interrupt resume loop via `state.next` check |
+| `cli/main.py` | `build_graph()` accepts optional `checkpointer`; `main()` uses `SqliteSaver`, `thread_id` + `role` in config, interrupt resume loop via `state.next` check |
 | `tests/conftest.py` | Added `build_graph_with_checkpointer` fixture (SqliteSaver in-memory) |
 | `tests/test_skeleton.py` | Removed `role` from all state dicts; updated key assertion from 5 to 4; integration tests pass `config` |
 | `tests/test_gates.py` | `_make_state()` no longer takes `role`; all `GatekeeperNode` calls pass `config`; removed Case B/C stub tests; added fail-closed tests for missing/empty config |
@@ -33,13 +33,14 @@ Replaced the Case B dead-end stub with a real Human-In-The-Loop flow using LangG
 | `src/graph/edges.py` | `route_after_assistant` (tool_calls → Gatekeeper, else → END), `route_after_gatekeeper` (is_blocked → AssistantNode, else → S3ToolNode) |
 | `src/tools/s3_tools.py` | `list_buckets` and `get_bucket_policy` — hardcoded `@tool` functions |
 | `src/core/security.py` | `SENSITIVE_TOOLS` and `ROLES` constants |
-| `cmd/main.py` | `build_graph(checkpointer=None)` compiles the StateGraph; `main()` runs CLI loop with SqliteSaver, `--role`, and interrupt handling |
+| `cli/main.py` | `build_graph(checkpointer=None)` compiles the StateGraph; `main()` runs CLI loop with SqliteSaver, `--role`, and interrupt handling |
 | `tests/conftest.py` | `build_graph` fixture (importlib); `build_graph_with_checkpointer` fixture (SqliteSaver in-memory) |
 | `tests/test_skeleton.py` | 4 unit tests + 1 integration: state instantiation, graph compilation, hello routing, edge routing (x2) |
 | `tests/test_gates.py` | 7 unit tests + 1 integration: Case A blocking, non-sensitive pass-through, fail-closed defaults (x2), edge routing (x2), end-to-end guest denial |
 | `tests/test_hitl.py` | 5 tests: interrupt pauses graph, approve resumes, deny produces denial message, approval resets after execution, checkpointer compiles |
 | `pytest.ini` | Registers `integration` custom mark |
 | `requirements.txt` | `langgraph`, `langchain-openai`, `langchain-anthropic`, `langgraph-checkpoint-sqlite`, `python-dotenv`, `boto3`, `pytest` |
+| `run.py` | Project entry point — imports and calls `cli.main.main()` |
 | `.env` | Placeholder secrets file (gitignored) |
 
 ---
@@ -104,14 +105,14 @@ class AgentState(TypedDict):
 |---|---|---|
 | `RunnableConfig` | `langchain_core.runnables` | `GatekeeperNode` signature |
 | `interrupt` | `langgraph.types` | `GatekeeperNode` HITL pause |
-| `Command` | `langgraph.types` | `cmd/main.py` resume signal |
-| `SqliteSaver` | `langgraph.checkpoint.sqlite` | `cmd/main.py`, `tests/conftest.py`, `tests/test_hitl.py` |
+| `Command` | `langgraph.types` | `cli/main.py` resume signal |
+| `SqliteSaver` | `langgraph.checkpoint.sqlite` | `cli/main.py`, `tests/conftest.py`, `tests/test_hitl.py` |
 
 #### Test Fixtures (`tests/conftest.py`)
 
 | Fixture | Returns | Notes |
 |---|---|---|
-| `build_graph` | `Callable` — the `build_graph(checkpointer=None)` function | Imported via `importlib` from `cmd/main.py` |
+| `build_graph` | `Callable` — the `build_graph(checkpointer=None)` function | Imported from `cli.main` |
 | `build_graph_with_checkpointer` | Compiled graph app with in-memory SqliteSaver | Yielded inside context manager; uses `build_graph` fixture |
 
 ---
@@ -158,7 +159,7 @@ Run all tests: `pytest` (requires `OPENAI_API_KEY`)
 
 ### Architectural Decisions (Cumulative)
 
-1. **`cmd/` is not a Python package.** No `__init__.py` — `cmd` shadows stdlib. Tests import via `importlib`.
+1. **`cli/` is a Python package.** Renamed from `cmd/` to avoid shadowing Python's stdlib `cmd` module (which broke `pdb`/pytest). Entry point is `run.py` at project root.
 2. **LLM configured with `base_url` from env.** Supports non-default OpenAI-compatible endpoints.
 3. **Integration tests marked separately.** `@pytest.mark.integration` for tests requiring live LLM key.
 4. **Fail-closed default.** `is_blocked` defaults to `True` everywhere. Missing `role` in config defaults to `"user"` (unprivileged).

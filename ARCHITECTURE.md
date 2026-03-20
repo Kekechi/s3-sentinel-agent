@@ -6,7 +6,9 @@ This document serves as the **Anchor**. All code implementation must fit into th
 
 ```
 s3-sentinel-graph/
-├── cmd/                   # Entry points
+├── run.py                 # Project entry point — calls cli.main.main()
+├── cli/                   # Entry points (Python package)
+│   ├── __init__.py
 │   └── main.py            # Graph initialization, SqliteSaver, CLI loop (--role, interrupt handling)
 ├── src/
 │   ├── graph/             # The "Brain" (Logic Authority)
