@@ -8,6 +8,9 @@ from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from langgraph.types import interrupt
 
+from langsmith import traceable
+
+from src.core.audit import set_audit_metadata, tag_security_event
 from src.core.s3_client import create_s3_client
 from src.core.security import SENSITIVE_KEYS, SENSITIVE_TOOLS
 from src.graph.state import AgentState
@@ -61,6 +64,7 @@ def _check_bucket_restricted(tool_call: dict) -> bool:
         return True
 
 
+@traceable(run_type="chain", name="GatekeeperNode")
 def GatekeeperNode(state: AgentState, config: RunnableConfig) -> dict:
     """Inspect pending tool_calls and enforce role-based access control.
 
@@ -101,6 +105,17 @@ def GatekeeperNode(state: AgentState, config: RunnableConfig) -> dict:
                             )
                         )
                         is_blocked = True
+
+    # --- Audit instrumentation (M6) ---
+    thread_id = config.get("configurable", {}).get("thread_id", "unknown")
+    set_audit_metadata(
+        role=role,
+        thread_id=thread_id,
+        is_human_approved=state.get("is_human_approved", False),
+        is_blocked=is_blocked,
+    )
+    if is_blocked:
+        tag_security_event("security_event:access_denied")
 
     if is_blocked:
         return {"messages": results, "is_blocked": True}
@@ -158,6 +173,7 @@ def _apply_redaction(content: str) -> str:
         return content
 
 
+@traceable(run_type="chain", name="ResponseSanitizerNode")
 def ResponseSanitizerNode(state: AgentState, config: RunnableConfig) -> dict:
     """Sanitize tool outputs before they reach the AssistantNode.
 
@@ -184,5 +200,15 @@ def ResponseSanitizerNode(state: AgentState, config: RunnableConfig) -> dict:
             )
         else:
             sanitized.append(msg)
+
+    # --- Audit instrumentation (M6) ---
+    thread_id = config.get("configurable", {}).get("thread_id", "unknown")
+    set_audit_metadata(
+        role=role,
+        thread_id=thread_id,
+        is_policy_exposed=state.get("is_policy_exposed", False),
+    )
+    if state.get("is_policy_exposed", False):
+        tag_security_event("policy_exposed:true")
 
     return {"messages": sanitized}

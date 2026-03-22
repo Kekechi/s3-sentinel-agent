@@ -1,22 +1,23 @@
 ## **STATE.md: Implementation Snapshot**
 
-* **Current Phase**: **Milestone 5 Complete** — The Sanitizer & Response Wall.
-* **Last Action**: Added `ResponseSanitizerNode` between `S3ToolNode` and `AssistantNode`. Implements error masking (user role 403/AccessDenied → "Error: Bucket not found") and key-based data redaction (scrubs `Resource`, `Principal`, `Owner`, `ID`, `Condition` keys from JSON outputs). 40 unit tests + 2 minio integration tests + 2 LLM integration tests.
+* **Current Phase**: **Milestone 6 Complete** — Observability & Forensic Audit.
+* **Last Action**: Added LangSmith instrumentation to `GatekeeperNode` and `ResponseSanitizerNode`. Created `src/core/audit.py` helper module with `tag_security_event` and `set_audit_metadata`. Security-critical nodes now emit `security_event:access_denied` and `policy_exposed:true` tags with full audit metadata (role, thread_id, is_human_approved, is_blocked, is_policy_exposed). 52 unit tests + 2 minio integration tests + 2 LLM integration tests.
 * **Blockers**: None.
-* **Next Step**: Milestone 6 — Observability & Forensic Audit (LangSmith trace audits, security tagging).
+* **Next Step**: TBD.
 
 ---
 
-### What Was Implemented in M5
+### What Was Implemented in M6
 
-Added `ResponseSanitizerNode` as a post-processor between `S3ToolNode` and `AssistantNode`. Rewired the graph topology. Implemented two sanitization layers: (1) error masking that rewrites 403/AccessDenied errors to `"Error: Bucket not found"` for unprivileged users, preventing bucket-existence discovery; (2) key-based data redaction that recursively walks JSON tool outputs and replaces values under sensitive keys with `"[REDACTED]"` for all roles. Added `SENSITIVE_KEYS` constant to `src/core/security.py`.
+Added LangSmith observability to the two security-critical nodes. Created `src/core/audit.py` as a centralized audit helper module with two pure functions: `tag_security_event` (appends security event tags to the current LangSmith RunTree) and `set_audit_metadata` (pushes role, thread_id, and boolean state into RunTree metadata). Both gracefully no-op when tracing is inactive (`get_current_run_tree()` returns `None`). Decorated `GatekeeperNode` and `ResponseSanitizerNode` with `@traceable(run_type="chain")`. GatekeeperNode tags `security_event:access_denied` when blocking and emits role/thread_id/is_human_approved/is_blocked metadata. ResponseSanitizerNode tags `policy_exposed:true` when the high-water mark is set and emits role/thread_id/is_policy_exposed metadata. Added `langsmith>=0.7.0` to requirements.txt and LangSmith env vars to `.env` (tracing disabled by default).
 
 | File | What Changed |
 |---|---|
-| `src/graph/nodes.py` | Added `_ERROR_INDICATORS` tuple, `_is_access_error()` helper, `_redact_sensitive_keys()` recursive JSON walker, `_apply_redaction()` JSON parse + redact wrapper, `ResponseSanitizerNode` (error masking + key-based redaction). Added `json` and `SENSITIVE_KEYS` imports. |
-| `src/core/security.py` | Added `SENSITIVE_KEYS = {"Owner", "ID", "Resource", "Principal", "Condition"}` |
-| `cli/main.py` | Added `ResponseSanitizerNode` import and node registration. Rewired edges: `S3ToolNode → ResponseSanitizerNode → AssistantNode` (was `S3ToolNode → AssistantNode`). |
-| `tests/test_sanitizer.py` | **New file** — 4 error masking tests + 7 data redaction tests |
+| `src/core/audit.py` | **New file** — `tag_security_event(event_name)` and `set_audit_metadata(*, role, thread_id, is_human_approved, is_blocked, is_policy_exposed)`. No-ops when tracing inactive. |
+| `src/graph/nodes.py` | Added `@traceable` decorator + audit instrumentation to `GatekeeperNode` and `ResponseSanitizerNode`. Added `langsmith.traceable`, `src.core.audit` imports. |
+| `requirements.txt` | Added `langsmith>=0.7.0` |
+| `.env` | Added `LANGCHAIN_TRACING_V2=false`, `LANGCHAIN_API_KEY=`, `LANGCHAIN_PROJECT=s3-sentinel-agent` |
+| `tests/test_audit.py` | **New file** — 12 unit tests: security event tagging (2), metadata forensics (4), sanitizer tags (2), sanitizer metadata + reconstructibility (2), graceful degradation (2) |
 
 ---
 
@@ -25,7 +26,8 @@ Added `ResponseSanitizerNode` as a post-processor between `S3ToolNode` and `Assi
 | File | Purpose |
 |---|---|
 | `src/graph/state.py` | `AgentState` TypedDict with 4 fields: `messages`, `is_policy_exposed`, `is_human_approved`, `is_blocked` |
-| `src/graph/nodes.py` | `AssistantNode` (LLM + bound tools), `_check_bucket_restricted` (pre-flight tagging), `GatekeeperNode` (role-based access + metadata-driven interrupt), `S3ToolNode` (tool dispatch + approval reset + policy exposure wiring), `ResponseSanitizerNode` (error masking + key-based data redaction) |
+| `src/graph/nodes.py` | `AssistantNode` (LLM + bound tools), `_check_bucket_restricted` (pre-flight tagging), `GatekeeperNode` (role-based access + metadata-driven interrupt + audit instrumentation), `S3ToolNode` (tool dispatch + approval reset + policy exposure wiring), `ResponseSanitizerNode` (error masking + key-based data redaction + audit instrumentation) |
+| `src/core/audit.py` | `tag_security_event` and `set_audit_metadata` — LangSmith RunTree helpers (no-ops when tracing inactive) |
 | `src/graph/edges.py` | `route_after_assistant` (tool_calls → Gatekeeper, else → END), `route_after_gatekeeper` (is_blocked → AssistantNode, else → S3ToolNode) |
 | `src/tools/s3_tools.py` | `list_buckets` and `get_bucket_policy` — live boto3 `@tool` functions via `create_s3_client()` |
 | `src/core/s3_client.py` | `create_s3_client()` factory — returns boto3 S3 client configured for MinIO endpoint |
@@ -39,10 +41,11 @@ Added `ResponseSanitizerNode` as a post-processor between `S3ToolNode` and `Assi
 | `tests/test_hitl.py` | 6 unit tests + 0 integration: interrupt pauses, approve resumes, deny blocks, approval resets, untagged skips interrupt, checkpointer compiles |
 | `tests/test_s3_tools.py` | 7 unit tests + 2 minio integration: list_buckets JSON, get_bucket_policy (success, no-policy, error), policy_exposed (success, error, high-water-mark), live list, live policy |
 | `tests/test_sanitizer.py` | 11 unit tests + 0 integration: error masking (user 403, user AccessDenied, admin 403 passthrough, user non-error passthrough), data redaction (Resource, Owner/ID, Principal, Condition, non-sensitive preserved, non-JSON passthrough, admin also redacted) |
+| `tests/test_audit.py` | 12 unit tests + 0 integration: security event tagging (2), metadata forensics (4), sanitizer audit tags (2), sanitizer audit metadata + reconstructibility (2), graceful degradation (2) |
 | `pytest.ini` | Registers `integration` and `minio` custom marks |
-| `requirements.txt` | `langgraph`, `langchain-openai`, `langchain-anthropic`, `langgraph-checkpoint-sqlite`, `python-dotenv`, `boto3`, `pytest` |
+| `requirements.txt` | `langgraph`, `langchain-openai`, `langchain-anthropic`, `langgraph-checkpoint-sqlite`, `python-dotenv`, `boto3`, `langsmith`, `pytest` |
 | `run.py` | Project entry point — imports and calls `cli.main.main()` |
-| `.env` | Secrets: API keys + MinIO credentials (gitignored) |
+| `.env` | Secrets: API keys + MinIO credentials + LangSmith config (gitignored) |
 
 ---
 
@@ -73,9 +76,12 @@ Returns a boto3 S3 client configured for MinIO via env vars (`MINIO_ENDPOINT_URL
 |---|---|---|
 | `AssistantNode` | `(state: AgentState) -> dict` | Invokes `gpt-4o-mini` with bound tools. Returns `{"messages": [AIMessage]}`. |
 | `_check_bucket_restricted` | `(tool_call: dict) -> bool` | Pre-flight tagging check via `get_bucket_tagging`. Returns `True` if `classification=restricted` found, if any non-tagging error occurs, or if `bucket_name` is missing (fail-closed). Returns `False` only for `NoSuchTagSet` (untagged bucket). |
-| `GatekeeperNode` | `(state: AgentState, config: RunnableConfig) -> dict` | Extracts `role` from config (default: `"user"`). User + sensitive → Security Violation. Admin + sensitive + restricted bucket → `interrupt()`. Admin + sensitive + untagged bucket → pass through. Returns `{"is_blocked": True/False, ...}`. |
+| `GatekeeperNode` | `@traceable` `(state: AgentState, config: RunnableConfig) -> dict` | Extracts `role` from config (default: `"user"`). User + sensitive → Security Violation. Admin + sensitive + restricted bucket → `interrupt()`. Admin + sensitive + untagged bucket → pass through. Emits audit metadata (role, thread_id, is_human_approved, is_blocked) and tags `security_event:access_denied` when blocking. Returns `{"is_blocked": True/False, ...}`. |
 | `S3ToolNode` | `(state: AgentState) -> dict` | Executes tool calls via `TOOLS_BY_NAME` lookup. Sets `is_policy_exposed: True` on successful `get_bucket_policy` (high-water mark). Returns `{"messages": [...], "is_human_approved": False, "is_policy_exposed": <bool>}`. |
-| `ResponseSanitizerNode` | `(state: AgentState, config: RunnableConfig) -> dict` | Post-processor between S3ToolNode and AssistantNode. (1) Error masking: rewrites 403/AccessDenied to `"Error: Bucket not found"` for user role. (2) Key-based redaction: recursively scrubs `SENSITIVE_KEYS` values to `"[REDACTED]"` in JSON outputs for all roles. Preserves message IDs for `add_messages` reducer. |
+| `ResponseSanitizerNode` | `@traceable` `(state: AgentState, config: RunnableConfig) -> dict` | Post-processor between S3ToolNode and AssistantNode. (1) Error masking: rewrites 403/AccessDenied to `"Error: Bucket not found"` for user role. (2) Key-based redaction: recursively scrubs `SENSITIVE_KEYS` values to `"[REDACTED]"` in JSON outputs for all roles. Preserves message IDs for `add_messages` reducer. Emits audit metadata (role, thread_id, is_policy_exposed) and tags `policy_exposed:true` when high-water mark is set. |
+| `_is_access_error` | `(content: str) -> bool` | Checks if tool output contains any of `_ERROR_INDICATORS` (`"403"`, `"Forbidden"`, `"Access Denied"`, `"AccessDenied"`). Used by `ResponseSanitizerNode` for error masking. |
+| `_apply_redaction` | `(content: str) -> str` | Attempts to parse content as JSON and recursively redact `SENSITIVE_KEYS` via `_redact_sensitive_keys`. Returns original content unchanged on `JSONDecodeError`. Used by `ResponseSanitizerNode`. |
+| `_redact_sensitive_keys` | `(data) -> any` | Recursively walks a parsed JSON structure (dicts/lists). Replaces values of keys in `SENSITIVE_KEYS` with `"[REDACTED]"`. Leaves all other values untouched. |
 
 #### ResponseSanitizerNode Logic (M5)
 
@@ -128,6 +134,22 @@ Returns a boto3 S3 client configured for MinIO via env vars (`MINIO_ENDPOINT_URL
 | `json` | stdlib | `src/graph/nodes.py` (`_apply_redaction`, `_redact_sensitive_keys`) |
 | `SENSITIVE_KEYS` | `src.core.security` | `src/graph/nodes.py` (`_redact_sensitive_keys`) |
 
+#### Key Imports Added in M6
+
+| Import | Source | Used In |
+|---|---|---|
+| `traceable` | `langsmith` | `src/graph/nodes.py` (decorates `GatekeeperNode`, `ResponseSanitizerNode`) |
+| `tag_security_event` | `src.core.audit` | `src/graph/nodes.py` (security event tagging) |
+| `set_audit_metadata` | `src.core.audit` | `src/graph/nodes.py` (audit metadata attachment) |
+| `get_current_run_tree` | `langsmith.run_helpers` | `src/core/audit.py` (RunTree access for dynamic metadata) |
+
+#### Audit Helpers (`src/core/audit.py`)
+
+| Function | Signature | Behavior |
+|---|---|---|
+| `tag_security_event` | `(event_name: str) -> None` | Appends a tag to the current LangSmith RunTree. No-op when `get_current_run_tree()` returns `None`. |
+| `set_audit_metadata` | `(*, role, thread_id, is_human_approved, is_blocked, is_policy_exposed) -> None` | Pushes non-None kwargs into `run_tree.metadata`. No-op when tracing inactive. |
+
 #### Test Fixtures (`tests/conftest.py`)
 
 | Fixture | Returns | Notes |
@@ -138,7 +160,7 @@ Returns a boto3 S3 client configured for MinIO via env vars (`MINIO_ENDPOINT_URL
 
 ---
 
-### Graph Flow (Current — M5)
+### Graph Flow (Current — M6)
 
 ```
 User Input
@@ -151,24 +173,27 @@ route_after_assistant
                             ↓
                    role from config["configurable"] (default: "user")
                             ↓
-                   ┌── user + sensitive → BLOCKED (Security Violation) → AssistantNode
+                   ┌── user + sensitive → BLOCKED (Security Violation)
+                   │       → audit: security_event:access_denied + metadata
+                   │       → AssistantNode
                    ├── admin + sensitive → _check_bucket_restricted()
                    │       ├── restricted → interrupt() PAUSES graph
                    │       │       ↓
                    │       │   CLI prompts admin → Command(resume=True/False)
-                   │       │       ├── approved → is_blocked=False → S3ToolNode
-                   │       │       └── denied → BLOCKED (Admin denied) → AssistantNode
-                   │       └── untagged → is_blocked=False → S3ToolNode
-                   └── non-sensitive → is_blocked=False → S3ToolNode
+                   │       │       ├── approved → audit: metadata → is_blocked=False → S3ToolNode
+                   │       │       └── denied → audit: security_event:access_denied + metadata → AssistantNode
+                   │       └── untagged → audit: metadata → is_blocked=False → S3ToolNode
+                   └── non-sensitive → audit: metadata → is_blocked=False → S3ToolNode
 
 S3ToolNode post-execution:
   - Resets is_human_approved to False
   - Sets is_policy_exposed to True if get_bucket_policy succeeded (high-water mark)
   ↓
-ResponseSanitizerNode (M5):
+ResponseSanitizerNode (M5 + M6):
   - Error masking: user + 403/AccessDenied → "Error: Bucket not found"
   - Key-based redaction: scrubs SENSITIVE_KEYS values to "[REDACTED]" in JSON (all roles)
   - Preserves message IDs for add_messages reducer
+  - Audit: emits role/thread_id/is_policy_exposed metadata + policy_exposed:true tag
   ↓
 AssistantNode (LLM processes sanitized tool results)
 ```
@@ -184,7 +209,8 @@ AssistantNode (LLM processes sanitized tool results)
 | `tests/test_hitl.py` | 6 | 0 | 0 |
 | `tests/test_s3_tools.py` | 7 | 2 | 0 |
 | `tests/test_sanitizer.py` | 11 | 0 | 0 |
-| **Total** | **40** | **2** | **2** |
+| `tests/test_audit.py` | 12 | 0 | 0 |
+| **Total** | **52** | **2** | **2** |
 
 Run unit tests only: `pytest -m "not minio and not integration"`
 Run with MinIO: `pytest -m "not integration"` (requires `docker-compose up -d && python scripts/seed_minio.py`)
@@ -211,12 +237,7 @@ Run all tests: `pytest` (requires MinIO + `OPENAI_API_KEY`)
 15. **Sanitizer preserves message IDs (M5).** `ResponseSanitizerNode` copies the original `ToolMessage.id` when creating sanitized replacements. This ensures the `add_messages` reducer treats them as updates (not duplicates), preventing orphaned ToolMessages that break the LLM's tool_call/ToolMessage pairing.
 16. **Error masking is user-only (M5).** Only `role == "user"` gets 403/AccessDenied errors rewritten to `"Error: Bucket not found"`. Admins see raw error content (they need it for debugging). Error masking runs before redaction.
 17. **Key-based redaction is role-agnostic (M5).** `SENSITIVE_KEYS` (`Owner`, `ID`, `Resource`, `Principal`, `Condition`) are scrubbed for all roles — defense in depth. Non-JSON content passes through unchanged. Redaction uses recursive JSON walking, not regex.
-
----
-
-### Pending Dependencies for M6 (Observability & Forensic Audit)
-
-| Item | Detail | Where |
-|---|---|---|
-| **LangSmith Trace Audits** | Configure LangSmith for "Security Forensics" to track exactly why the Gatekeeper permitted or denied an action. | LangSmith config, node instrumentation |
-| **Security Tagging** | Automatic tagging of `UnauthorizedAccessAttempt` and `policy_exposed: true` in LangSmith traces. | `src/graph/nodes.py` (GatekeeperNode, S3ToolNode) |
+18. **Audit helper module, not inline (M6).** All LangSmith `RunTree` interaction is centralized in `src/core/audit.py` with two pure functions. No module-level state. Single mock target (`src.core.audit.get_current_run_tree`) for test isolation.
+19. **Graceful degradation when tracing is off (M6).** `get_current_run_tree()` returns `None` when `LANGCHAIN_TRACING_V2` is not `true`. All audit functions guard with `if run_tree is not None:` — the system behaves identically with or without LangSmith configured.
+20. **Only security-decision nodes get @traceable (M6).** `GatekeeperNode` and `ResponseSanitizerNode` are decorated with `@traceable` because they make security decisions. `AssistantNode` and `S3ToolNode` are already auto-traced by LangGraph when tracing is enabled — no custom metadata needed there.
+21. **Audit metadata survives redaction (M6).** The `ResponseSanitizerNode` attaches audit metadata (role, thread_id, is_policy_exposed) and tags *after* sanitizing content. This means an auditor can reconstruct the full context of a redacted run from LangSmith metadata even though the user-facing output was scrubbed.

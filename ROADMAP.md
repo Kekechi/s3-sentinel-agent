@@ -48,14 +48,8 @@ This document tracks the evolution of the **S3-Sentinel-Graph**, from the initia
 
 **Phase 3: Observability & Forensic Audit (Current)**
 
-## **Milestone 6: The Nervous System (Current) 🟦**
+## **Milestone 6: The Nervous System ✅**
 
-* **Goal**: Implement deep observability and security event logging.  
-* **Task 6.1: LangSmith Instrumentation**: Add @traceable decorators to security-critical nodes (GatekeeperNode, ResponseSanitizerNode).  
-* **Task 6.2: Security Event Tagging**:  
-  * Tag traces with security\_event: access\_denied when is\_blocked is True.  
-  * Tag traces with policy\_exposed: true when high-water mark is hit.  
-* **Task 6.3: Metadata Forensics**: Push role, thread\_id, and is\_human\_approved status into LangSmith metadata fields for audit filtering.  
-* **Task 6.4: Audit Validation**: Create tests/test\_audit.py to ensure that even "redacted" runs are fully reconstructible by an auditor in the backend.
-
-## 
+* **Goal**: Implement deep observability and security event logging.
+* **Key Deliverables**: `@traceable` decorators on GatekeeperNode and ResponseSanitizerNode. `src/core/audit.py` helper module with `tag_security_event` and `set_audit_metadata`. Security event tagging (`security_event:access_denied`, `policy_exposed:true`) and metadata forensics (role, thread_id, boolean state) pushed to LangSmith traces. `tests/test_audit.py` with 12 unit tests for audit reconstructibility and graceful degradation.
+* **Outcome**: Full forensic audit trail — even redacted runs are reconstructible by an auditor via LangSmith metadata. System degrades gracefully when tracing is disabled.
