@@ -1,29 +1,22 @@
 ## **STATE.md: Implementation Snapshot**
 
-* **Current Phase**: **Milestone 4 Complete** — Storage & Policy Wiring.
-* **Last Action**: Replaced hardcoded S3 tool stubs with live boto3 calls against MinIO. Wired `is_policy_exposed` flag. Added metadata-driven HITL via pre-flight `get_bucket_tagging` check. 29 unit tests + 2 minio integration tests + 2 LLM integration tests.
+* **Current Phase**: **Milestone 5 Complete** — The Sanitizer & Response Wall.
+* **Last Action**: Added `ResponseSanitizerNode` between `S3ToolNode` and `AssistantNode`. Implements error masking (user role 403/AccessDenied → "Error: Bucket not found") and key-based data redaction (scrubs `Resource`, `Principal`, `Owner`, `ID`, `Condition` keys from JSON outputs). 40 unit tests + 2 minio integration tests + 2 LLM integration tests.
 * **Blockers**: None.
-* **Next Step**: Milestone 5 — The Sanitizer & Response Wall (ResponseSanitizerNode, error masking, data redaction).
+* **Next Step**: Milestone 6 — Observability & Forensic Audit (LangSmith trace audits, security tagging).
 
 ---
 
-### What Was Implemented in M4
+### What Was Implemented in M5
 
-Replaced hardcoded tool stubs with live boto3 calls via a shared `create_s3_client()` factory. Added MinIO infrastructure (Docker Compose + seed script). Wired `is_policy_exposed` as a high-water mark in S3ToolNode. Added `_check_bucket_restricted()` pre-flight tagging check in GatekeeperNode — admin HITL now only fires for `classification: restricted` buckets, untagged buckets pass through. Added autouse mock fixture so all tests run without MinIO.
+Added `ResponseSanitizerNode` as a post-processor between `S3ToolNode` and `AssistantNode`. Rewired the graph topology. Implemented two sanitization layers: (1) error masking that rewrites 403/AccessDenied errors to `"Error: Bucket not found"` for unprivileged users, preventing bucket-existence discovery; (2) key-based data redaction that recursively walks JSON tool outputs and replaces values under sensitive keys with `"[REDACTED]"` for all roles. Added `SENSITIVE_KEYS` constant to `src/core/security.py`.
 
 | File | What Changed |
 |---|---|
-| `.env` | Added `MINIO_ROOT_USER=minioadmin`, `MINIO_ROOT_PASSWORD=minioadmin`, `MINIO_ENDPOINT_URL=http://localhost:9000` |
-| `docker-compose.yml` | **New file** — MinIO service with ports 9000/9001, health check, named volume |
-| `scripts/seed_minio.py` | **New file** — Idempotent seeding: creates `public-data` (untagged) and `restricted-confidential` (tagged `classification: restricted` + read policy) |
-| `src/core/s3_client.py` | **New file** — `create_s3_client()` factory function (boto3 client for MinIO, no global state) |
-| `src/tools/s3_tools.py` | Rewritten — `list_buckets` and `get_bucket_policy` now use live boto3 via `create_s3_client()`. Error handling for `NoSuchBucketPolicy` and general exceptions. |
-| `src/graph/nodes.py` | Added `_check_bucket_restricted()` helper. `GatekeeperNode` admin path now does pre-flight tagging check before `interrupt()`. `S3ToolNode` now wires `is_policy_exposed` (high-water mark). Added imports for `create_s3_client` and `ClientError`. |
-| `tests/conftest.py` | Added autouse `mock_s3_client` fixture — patches both `src.tools.s3_tools.create_s3_client` and `src.graph.nodes.create_s3_client`. Skipped for `@pytest.mark.minio` tests. |
-| `tests/test_s3_tools.py` | **New file** — 4 tool unit tests + 3 `is_policy_exposed` tests + 2 minio integration tests |
-| `tests/test_gates.py` | Added 5 tests: `_check_bucket_restricted` (restricted, untagged, error, no-bucket-name) + admin untagged pass-through |
-| `tests/test_hitl.py` | Added 1 test: `test_admin_untagged_bucket_skips_interrupt` |
-| `pytest.ini` | Added `minio` marker |
+| `src/graph/nodes.py` | Added `_ERROR_INDICATORS` tuple, `_is_access_error()` helper, `_redact_sensitive_keys()` recursive JSON walker, `_apply_redaction()` JSON parse + redact wrapper, `ResponseSanitizerNode` (error masking + key-based redaction). Added `json` and `SENSITIVE_KEYS` imports. |
+| `src/core/security.py` | Added `SENSITIVE_KEYS = {"Owner", "ID", "Resource", "Principal", "Condition"}` |
+| `cli/main.py` | Added `ResponseSanitizerNode` import and node registration. Rewired edges: `S3ToolNode → ResponseSanitizerNode → AssistantNode` (was `S3ToolNode → AssistantNode`). |
+| `tests/test_sanitizer.py` | **New file** — 4 error masking tests + 7 data redaction tests |
 
 ---
 
@@ -32,11 +25,11 @@ Replaced hardcoded tool stubs with live boto3 calls via a shared `create_s3_clie
 | File | Purpose |
 |---|---|
 | `src/graph/state.py` | `AgentState` TypedDict with 4 fields: `messages`, `is_policy_exposed`, `is_human_approved`, `is_blocked` |
-| `src/graph/nodes.py` | `AssistantNode` (LLM + bound tools), `_check_bucket_restricted` (pre-flight tagging), `GatekeeperNode` (role-based access + metadata-driven interrupt), `S3ToolNode` (tool dispatch + approval reset + policy exposure wiring) |
+| `src/graph/nodes.py` | `AssistantNode` (LLM + bound tools), `_check_bucket_restricted` (pre-flight tagging), `GatekeeperNode` (role-based access + metadata-driven interrupt), `S3ToolNode` (tool dispatch + approval reset + policy exposure wiring), `ResponseSanitizerNode` (error masking + key-based data redaction) |
 | `src/graph/edges.py` | `route_after_assistant` (tool_calls → Gatekeeper, else → END), `route_after_gatekeeper` (is_blocked → AssistantNode, else → S3ToolNode) |
 | `src/tools/s3_tools.py` | `list_buckets` and `get_bucket_policy` — live boto3 `@tool` functions via `create_s3_client()` |
 | `src/core/s3_client.py` | `create_s3_client()` factory — returns boto3 S3 client configured for MinIO endpoint |
-| `src/core/security.py` | `SENSITIVE_TOOLS` and `ROLES` constants |
+| `src/core/security.py` | `SENSITIVE_TOOLS`, `ROLES`, and `SENSITIVE_KEYS` constants |
 | `cli/main.py` | `build_graph(checkpointer=None)` compiles the StateGraph; `main()` runs CLI loop with SqliteSaver, `--role`, and interrupt handling |
 | `docker-compose.yml` | MinIO service (ports 9000/9001, health check, `minio-data` volume) |
 | `scripts/seed_minio.py` | Idempotent bucket seeding: `public-data` (untagged), `restricted-confidential` (tagged + policy) |
@@ -45,6 +38,7 @@ Replaced hardcoded tool stubs with live boto3 calls via a shared `create_s3_clie
 | `tests/test_gates.py` | 12 unit tests + 1 integration: Case A blocking, non-sensitive pass-through, fail-closed defaults (x2), edge routing (x2), `_check_bucket_restricted` (x4), admin untagged pass-through, end-to-end guest denial |
 | `tests/test_hitl.py` | 6 unit tests + 0 integration: interrupt pauses, approve resumes, deny blocks, approval resets, untagged skips interrupt, checkpointer compiles |
 | `tests/test_s3_tools.py` | 7 unit tests + 2 minio integration: list_buckets JSON, get_bucket_policy (success, no-policy, error), policy_exposed (success, error, high-water-mark), live list, live policy |
+| `tests/test_sanitizer.py` | 11 unit tests + 0 integration: error masking (user 403, user AccessDenied, admin 403 passthrough, user non-error passthrough), data redaction (Resource, Owner/ID, Principal, Condition, non-sensitive preserved, non-JSON passthrough, admin also redacted) |
 | `pytest.ini` | Registers `integration` and `minio` custom marks |
 | `requirements.txt` | `langgraph`, `langchain-openai`, `langchain-anthropic`, `langgraph-checkpoint-sqlite`, `python-dotenv`, `boto3`, `pytest` |
 | `run.py` | Project entry point — imports and calls `cli.main.main()` |
@@ -81,6 +75,17 @@ Returns a boto3 S3 client configured for MinIO via env vars (`MINIO_ENDPOINT_URL
 | `_check_bucket_restricted` | `(tool_call: dict) -> bool` | Pre-flight tagging check via `get_bucket_tagging`. Returns `True` if `classification=restricted` found, if any non-tagging error occurs, or if `bucket_name` is missing (fail-closed). Returns `False` only for `NoSuchTagSet` (untagged bucket). |
 | `GatekeeperNode` | `(state: AgentState, config: RunnableConfig) -> dict` | Extracts `role` from config (default: `"user"`). User + sensitive → Security Violation. Admin + sensitive + restricted bucket → `interrupt()`. Admin + sensitive + untagged bucket → pass through. Returns `{"is_blocked": True/False, ...}`. |
 | `S3ToolNode` | `(state: AgentState) -> dict` | Executes tool calls via `TOOLS_BY_NAME` lookup. Sets `is_policy_exposed: True` on successful `get_bucket_policy` (high-water mark). Returns `{"messages": [...], "is_human_approved": False, "is_policy_exposed": <bool>}`. |
+| `ResponseSanitizerNode` | `(state: AgentState, config: RunnableConfig) -> dict` | Post-processor between S3ToolNode and AssistantNode. (1) Error masking: rewrites 403/AccessDenied to `"Error: Bucket not found"` for user role. (2) Key-based redaction: recursively scrubs `SENSITIVE_KEYS` values to `"[REDACTED]"` in JSON outputs for all roles. Preserves message IDs for `add_messages` reducer. |
+
+#### ResponseSanitizerNode Logic (M5)
+
+| Role | Content Type | Result |
+|---|---|---|
+| `"user"` | 403 / AccessDenied error | **MASKED** — `"Error: Bucket not found"` |
+| `"user"` | Normal JSON | **REDACTED** — sensitive keys scrubbed |
+| `"admin"` | 403 / AccessDenied error | **REDACTED** — sensitive keys scrubbed (error visible) |
+| `"admin"` | Normal JSON | **REDACTED** — sensitive keys scrubbed |
+| any | Non-JSON plain text | **PASS-THROUGH** — unchanged |
 
 #### GatekeeperNode Decision Matrix (M4 — metadata-driven)
 
@@ -114,13 +119,14 @@ Returns a boto3 S3 client configured for MinIO via env vars (`MINIO_ENDPOINT_URL
 |---|---|
 | `SENSITIVE_TOOLS` | `["get_bucket_policy"]` |
 | `ROLES` | `{"admin", "user"}` |
+| `SENSITIVE_KEYS` | `{"Owner", "ID", "Resource", "Principal", "Condition"}` |
 
-#### Key Imports Added in M4
+#### Key Imports Added in M5
 
 | Import | Source | Used In |
 |---|---|---|
-| `create_s3_client` | `src.core.s3_client` | `src/graph/nodes.py` (`_check_bucket_restricted`), `src/tools/s3_tools.py` |
-| `ClientError` | `botocore.exceptions` | `src/graph/nodes.py` (`_check_bucket_restricted`) |
+| `json` | stdlib | `src/graph/nodes.py` (`_apply_redaction`, `_redact_sensitive_keys`) |
+| `SENSITIVE_KEYS` | `src.core.security` | `src/graph/nodes.py` (`_redact_sensitive_keys`) |
 
 #### Test Fixtures (`tests/conftest.py`)
 
@@ -132,7 +138,7 @@ Returns a boto3 S3 client configured for MinIO via env vars (`MINIO_ENDPOINT_URL
 
 ---
 
-### Graph Flow (Current — M4)
+### Graph Flow (Current — M5)
 
 ```
 User Input
@@ -150,14 +156,21 @@ route_after_assistant
                    │       ├── restricted → interrupt() PAUSES graph
                    │       │       ↓
                    │       │   CLI prompts admin → Command(resume=True/False)
-                   │       │       ├── approved → is_blocked=False → S3ToolNode → AssistantNode
+                   │       │       ├── approved → is_blocked=False → S3ToolNode
                    │       │       └── denied → BLOCKED (Admin denied) → AssistantNode
-                   │       └── untagged → is_blocked=False → S3ToolNode → AssistantNode
-                   └── non-sensitive → is_blocked=False → S3ToolNode → AssistantNode
+                   │       └── untagged → is_blocked=False → S3ToolNode
+                   └── non-sensitive → is_blocked=False → S3ToolNode
 
 S3ToolNode post-execution:
   - Resets is_human_approved to False
   - Sets is_policy_exposed to True if get_bucket_policy succeeded (high-water mark)
+  ↓
+ResponseSanitizerNode (M5):
+  - Error masking: user + 403/AccessDenied → "Error: Bucket not found"
+  - Key-based redaction: scrubs SENSITIVE_KEYS values to "[REDACTED]" in JSON (all roles)
+  - Preserves message IDs for add_messages reducer
+  ↓
+AssistantNode (LLM processes sanitized tool results)
 ```
 
 ---
@@ -170,7 +183,8 @@ S3ToolNode post-execution:
 | `tests/test_gates.py` | 12 | 0 | 1 |
 | `tests/test_hitl.py` | 6 | 0 | 0 |
 | `tests/test_s3_tools.py` | 7 | 2 | 0 |
-| **Total** | **29** | **2** | **2** |
+| `tests/test_sanitizer.py` | 11 | 0 | 0 |
+| **Total** | **40** | **2** | **2** |
 
 Run unit tests only: `pytest -m "not minio and not integration"`
 Run with MinIO: `pytest -m "not integration"` (requires `docker-compose up -d && python scripts/seed_minio.py`)
@@ -194,16 +208,15 @@ Run all tests: `pytest` (requires MinIO + `OPENAI_API_KEY`)
 12. **Policy exposure is a high-water mark (M4).** `is_policy_exposed` is set `True` once `get_bucket_policy` succeeds and never resets to `False`. Differs from `is_human_approved` which resets per-action.
 13. **Autouse mock for test isolation (M4).** `mock_s3_client` fixture patches both `src.tools.s3_tools.create_s3_client` and `src.graph.nodes.create_s3_client`. Must patch at import site, not definition site, due to `from ... import` creating local references.
 14. **MinIO normalizes policy JSON (M4).** MinIO converts `"Action": "s3:GetObject"` to `"Action": ["s3:GetObject"]` (string → list). Tests must handle both formats.
+15. **Sanitizer preserves message IDs (M5).** `ResponseSanitizerNode` copies the original `ToolMessage.id` when creating sanitized replacements. This ensures the `add_messages` reducer treats them as updates (not duplicates), preventing orphaned ToolMessages that break the LLM's tool_call/ToolMessage pairing.
+16. **Error masking is user-only (M5).** Only `role == "user"` gets 403/AccessDenied errors rewritten to `"Error: Bucket not found"`. Admins see raw error content (they need it for debugging). Error masking runs before redaction.
+17. **Key-based redaction is role-agnostic (M5).** `SENSITIVE_KEYS` (`Owner`, `ID`, `Resource`, `Principal`, `Condition`) are scrubbed for all roles — defense in depth. Non-JSON content passes through unchanged. Redaction uses recursive JSON walking, not regex.
 
 ---
 
-### Pending Dependencies for M5 (The Sanitizer & Response Wall)
+### Pending Dependencies for M6 (Observability & Forensic Audit)
 
 | Item | Detail | Where |
 |---|---|---|
-| **ResponseSanitizerNode** | New node between S3ToolNode and AssistantNode. Performs error masking and data redaction. | `src/graph/nodes.py` (new function), `cli/main.py` (add to graph) |
-| **Error Masking** | If `role == "user"` and tool returns `403 Forbidden` / `Access Denied`, rewrite to `"Error: Bucket not found"` to prevent bucket existence discovery. | `src/graph/nodes.py` (ResponseSanitizerNode) |
-| **Data Redaction** | Key-based redaction to scrub sensitive fields (ARNs, AccountIDs, Owner IDs, internal IPs) from successful outputs before they reach the LLM or user. | `src/graph/nodes.py` (ResponseSanitizerNode) |
-| **Graph topology change** | Current: `S3ToolNode → AssistantNode`. Must become: `S3ToolNode → ResponseSanitizerNode → AssistantNode`. | `cli/main.py` (edges) |
-| **test_sanitizer.py** | New test file for redaction and error masking tests. Listed in ARCHITECTURE.md but not yet created. | `tests/test_sanitizer.py` |
-| **LangSmith trace audits** | Deferred to M6. No observability wiring yet. | Future |
+| **LangSmith Trace Audits** | Configure LangSmith for "Security Forensics" to track exactly why the Gatekeeper permitted or denied an action. | LangSmith config, node instrumentation |
+| **Security Tagging** | Automatic tagging of `UnauthorizedAccessAttempt` and `policy_exposed: true` in LangSmith traces. | `src/graph/nodes.py` (GatekeeperNode, S3ToolNode) |

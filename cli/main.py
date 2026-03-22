@@ -6,7 +6,7 @@ from langgraph.graph import END, StateGraph
 from langgraph.types import Command
 
 from src.graph.edges import route_after_assistant, route_after_gatekeeper
-from src.graph.nodes import AssistantNode, GatekeeperNode, S3ToolNode
+from src.graph.nodes import AssistantNode, GatekeeperNode, ResponseSanitizerNode, S3ToolNode
 from src.graph.state import AgentState
 
 
@@ -17,6 +17,7 @@ def build_graph(checkpointer=None):
     graph.add_node("AssistantNode", AssistantNode)
     graph.add_node("GatekeeperNode", GatekeeperNode)
     graph.add_node("S3ToolNode", S3ToolNode)
+    graph.add_node("ResponseSanitizerNode", ResponseSanitizerNode)
 
     graph.set_entry_point("AssistantNode")
 
@@ -30,7 +31,8 @@ def build_graph(checkpointer=None):
         route_after_gatekeeper,
         {"S3ToolNode": "S3ToolNode", "AssistantNode": "AssistantNode"},
     )
-    graph.add_edge("S3ToolNode", "AssistantNode")
+    graph.add_edge("S3ToolNode", "ResponseSanitizerNode")
+    graph.add_edge("ResponseSanitizerNode", "AssistantNode")
 
     return graph.compile(checkpointer=checkpointer)
 

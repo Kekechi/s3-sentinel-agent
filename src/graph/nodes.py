@@ -1,3 +1,4 @@
+import json
 import os
 
 from botocore.exceptions import ClientError
@@ -8,7 +9,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.types import interrupt
 
 from src.core.s3_client import create_s3_client
-from src.core.security import SENSITIVE_TOOLS
+from src.core.security import SENSITIVE_KEYS, SENSITIVE_TOOLS
 from src.graph.state import AgentState
 from src.tools.s3_tools import get_bucket_policy, list_buckets
 
@@ -125,3 +126,63 @@ def S3ToolNode(state: AgentState) -> dict:
             is_policy_exposed = True
 
     return {"messages": results, "is_human_approved": False, "is_policy_exposed": is_policy_exposed}
+
+
+_ERROR_INDICATORS = ("403", "Forbidden", "Access Denied", "AccessDenied")
+
+
+def _is_access_error(content: str) -> bool:
+    """Check if tool output contains 403/Access Denied indicators."""
+    return any(indicator in content for indicator in _ERROR_INDICATORS)
+
+
+def _redact_sensitive_keys(data):
+    """Recursively walk a JSON structure and replace values under SENSITIVE_KEYS with '[REDACTED]'."""
+    if isinstance(data, dict):
+        return {
+            k: "[REDACTED]" if k in SENSITIVE_KEYS else _redact_sensitive_keys(v)
+            for k, v in data.items()
+        }
+    if isinstance(data, list):
+        return [_redact_sensitive_keys(item) for item in data]
+    return data
+
+
+def _apply_redaction(content: str) -> str:
+    """Attempt to parse content as JSON and redact sensitive keys. Pass through on failure."""
+    try:
+        parsed = json.loads(content)
+        redacted = _redact_sensitive_keys(parsed)
+        return json.dumps(redacted, indent=2)
+    except (json.JSONDecodeError, TypeError):
+        return content
+
+
+def ResponseSanitizerNode(state: AgentState, config: RunnableConfig) -> dict:
+    """Sanitize tool outputs before they reach the AssistantNode.
+
+    1. Error masking: rewrites 403/AccessDenied errors to generic message for user role.
+    2. Data redaction: scrubs sensitive JSON keys (ARNs, Owner IDs, etc.) for all roles.
+    """
+    role = config.get("configurable", {}).get("role", "user")
+    last_messages = state["messages"]
+    sanitized = []
+
+    for msg in last_messages:
+        if isinstance(msg, ToolMessage):
+            content = msg.content
+            if role == "user" and _is_access_error(content):
+                content = "Error: Bucket not found"
+            else:
+                content = _apply_redaction(content)
+            sanitized.append(
+                ToolMessage(
+                    content=content,
+                    tool_call_id=msg.tool_call_id,
+                    id=msg.id,
+                )
+            )
+        else:
+            sanitized.append(msg)
+
+    return {"messages": sanitized}
