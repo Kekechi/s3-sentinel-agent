@@ -32,7 +32,8 @@ Added LangSmith observability to the two security-critical nodes. Created `src/c
 | `src/tools/s3_tools.py` | `list_buckets` and `get_bucket_policy` — live boto3 `@tool` functions via `create_s3_client()` |
 | `src/core/s3_client.py` | `create_s3_client()` factory — returns boto3 S3 client configured for MinIO endpoint |
 | `src/core/security.py` | `SENSITIVE_TOOLS`, `ROLES`, and `SENSITIVE_KEYS` constants |
-| `cli/main.py` | `build_graph(checkpointer=None)` compiles the StateGraph; `main()` runs CLI loop with SqliteSaver, `--role`, and interrupt handling |
+| `cli/main.py` | `_create_graph()` defines the StateGraph topology; `graph` exposes the uncompiled graph for `langgraph dev`; `build_graph(checkpointer=None)` compiles the StateGraph; `main()` runs CLI loop with SqliteSaver, `--role`, and interrupt handling |
+| `langgraph.json` | LangGraph dev server config — points to `cli/main.py:graph`, loads `.env` |
 | `docker-compose.yml` | MinIO service (ports 9000/9001, health check, `minio-data` volume) |
 | `scripts/seed_minio.py` | Idempotent bucket seeding: `public-data` (untagged), `restricted-confidential` (tagged + policy) |
 | `tests/conftest.py` | `build_graph`, `build_graph_with_checkpointer`, `mock_s3_client` (autouse) fixtures |
@@ -43,7 +44,7 @@ Added LangSmith observability to the two security-critical nodes. Created `src/c
 | `tests/test_sanitizer.py` | 11 unit tests + 0 integration: error masking (user 403, user AccessDenied, admin 403 passthrough, user non-error passthrough), data redaction (Resource, Owner/ID, Principal, Condition, non-sensitive preserved, non-JSON passthrough, admin also redacted) |
 | `tests/test_audit.py` | 12 unit tests + 0 integration: security event tagging (2), metadata forensics (4), sanitizer audit tags (2), sanitizer audit metadata + reconstructibility (2), graceful degradation (2) |
 | `pytest.ini` | Registers `integration` and `minio` custom marks |
-| `requirements.txt` | `langgraph`, `langchain-openai`, `langchain-anthropic`, `langgraph-checkpoint-sqlite`, `python-dotenv`, `boto3`, `langsmith`, `pytest` |
+| `requirements.txt` | `langgraph`, `langchain-openai`, `langchain-anthropic`, `langgraph-checkpoint-sqlite`, `python-dotenv`, `boto3`, `langsmith`, `langgraph-cli[inmem]`, `pytest` |
 | `run.py` | Project entry point — imports and calls `cli.main.main()` |
 | `.env` | Secrets: API keys + MinIO credentials + LangSmith config (gitignored) |
 

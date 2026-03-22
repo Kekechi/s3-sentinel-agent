@@ -10,8 +10,8 @@ from src.graph.nodes import AssistantNode, GatekeeperNode, ResponseSanitizerNode
 from src.graph.state import AgentState
 
 
-def build_graph(checkpointer=None):
-    """Construct and compile the S3 Sentinel StateGraph."""
+def _create_graph():
+    """Define the S3 Sentinel StateGraph topology (uncompiled)."""
     graph = StateGraph(AgentState)
 
     graph.add_node("AssistantNode", AssistantNode)
@@ -34,7 +34,16 @@ def build_graph(checkpointer=None):
     graph.add_edge("S3ToolNode", "ResponseSanitizerNode")
     graph.add_edge("ResponseSanitizerNode", "AssistantNode")
 
-    return graph.compile(checkpointer=checkpointer)
+    return graph
+
+
+# Uncompiled graph for langgraph dev (the server provides its own checkpointer)
+graph = _create_graph()
+
+
+def build_graph(checkpointer=None):
+    """Compile the S3 Sentinel StateGraph with an optional checkpointer."""
+    return _create_graph().compile(checkpointer=checkpointer)
 
 
 def main():

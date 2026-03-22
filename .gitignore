@@ -1,5 +1,12 @@
 s3_sentinel.db
 
+# LangGraph dev server (in-memory persistence files)
+.langgraph_checkpoint.*.pckl
+.langgraph_ops.pckl
+.langgraph_retry_counter.pckl
+store.pckl
+store.vectors.pckl
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

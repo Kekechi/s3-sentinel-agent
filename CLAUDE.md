@@ -44,7 +44,7 @@ Nodes: Use PascalCase for the logic description (e.g., GatekeeperNode, S3ToolNod
 
 Tools: Use snake_case with action-verb prefixes (e.g., fetch_bucket_list, generate_access_link).
 
-Config: Authorization roles must be labeled as role: "admin" or role: "guest" within the configurable object.
+Config: Authorization roles must be labeled as role: "admin" or role: "user" within the configurable object.
 
 # The "Anti-Stack" (Constraints)
 

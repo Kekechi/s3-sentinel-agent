@@ -20,7 +20,7 @@ The `AgentState` TypedDict is the single source of truth for the session:
 - **Admin Role (Metadata-Driven)**: 
   - Performs "Pre-Flight" check via `boto3.get_bucket_tagging`.
   - **Case A**: If tag `classification: restricted` exists AND `is_human_approved == False` → `interrupt()` for HITL.
-  - **Case B**: If bucket is untagged ("Fail-Open") or not restricted → `is_blocked: False`.
+  - **Case B**: If bucket is untagged (no `classification: restricted` tag) or explicitly not restricted → `is_blocked: False`. Note: this is not "fail-open" — errors during tag lookup are fail-closed (treated as restricted). Only a confirmed `NoSuchTagSet` response results in pass-through.
 
 ### **S3ToolNode (Live Boto3)**
 - **Integration**: Uses a root-access `boto3.client` with `endpoint_url` for MinIO.

@@ -9,7 +9,7 @@ s3-sentinel-graph/
 ├── run.py                 # Project entry point — calls cli.main.main()
 ├── cli/                   # Entry points (Python package)
 │   ├── __init__.py
-│   └── main.py            # Graph initialization, SqliteSaver, CLI loop (--role, interrupt handling)
+│   └── main.py            # _create_graph(), graph (uncompiled for langgraph dev), build_graph(), main() CLI loop
 ├── src/
 │   ├── graph/             # The "Brain" (Logic Authority)
 │   │   ├── state.py       # AgentState TypedDict definition (4 fields)
@@ -31,9 +31,10 @@ s3-sentinel-graph/
 │   ├── test_s3_tools.py   # M4 tool tests (list_buckets, get_bucket_policy, is_policy_exposed wiring, live MinIO)
 │   ├── test_sanitizer.py  # M5 data redaction and error masking tests
 │   └── test_audit.py      # M6 audit instrumentation tests (tags, metadata, reconstructibility, graceful degradation)
+├── langgraph.json         # LangGraph dev server config (points to cli/main.py:graph, loads .env)
 ├── docker-compose.yml     # MinIO service (ports 9000/9001, health check, minio-data volume)
 ├── pytest.ini             # Custom marks (integration, minio)
-├── requirements.txt       # Dependencies (langgraph, langchain, checkpoint-sqlite, boto3, langsmith, pytest)
+├── requirements.txt       # Dependencies (langgraph, langchain, checkpoint-sqlite, boto3, langsmith, langgraph-cli, pytest)
 └── .env                   # Secrets (API Keys, MinIO Credentials, LangSmith config — gitignored)
 ```
 

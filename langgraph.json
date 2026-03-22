@@ -1,0 +1,10 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "s3_sentinel": {
+      "path": "cli/main.py:graph",
+      "description": "S3 Sentinel Agent — security-gated S3 access with HITL approval"
+    }
+  },
+  "env": ".env"
+}
