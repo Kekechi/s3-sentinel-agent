@@ -1,57 +1,43 @@
 ## **🗺️ ROADMAP.md: Strategic Implementation Path**
 
-## **Phase 1: Foundations (Complete)**
+## **Phase 1: Foundations & Security Logic (Complete)**
 
-- **M1: The Skeleton** ✅
-  - Defined AgentState and basic StateGraph structure.
-  - Verified graph compilation and basic routing.
-- **M2: The Gatekeeper** ✅
-  - Implemented role-based blocking in GatekeeperNode.
-  - Achieved 11 passing unit tests for Case A/B/C logic.
+* **Milestone 1: The Skeleton** ✅  
+  * Defined AgentState and established the core StateGraph structure.  
+  * Verified basic routing and tool binding.  
+* **Milestone 2: The Gatekeeper** ✅  
+  * Implemented hard-coded Python Role-Based Access Control (RBAC).  
+  * Established "fail-closed" defaults for unauthorized tool requests.  
+* **Milestone 3: The Admin HITL** ✅  
+  * Integrated SqliteSaver for session persistence.  
+  * Implemented LangGraph interrupt() for out-of-band Admin approvals.  
+  * Migrated role to trusted configuration to prevent prompt injection.
 
-## **Phase 2: Authority & Persistence (Complete)**
+## **Phase 2: Infrastructure & Integration (Complete)**
 
-**Milestone 3: The Admin HITL (Human-In-The-Loop)** ✅
+* **Milestone 4: Storage & Policy Wiring** ✅  
+  * Deployed MinIO S3-compatible backend via Docker Compose.  
+  * Integrated boto3 tools with live infrastructure.  
+  * Implemented **Metadata-Driven Gates**: Gatekeeper now checks bucket tags (classification: restricted) before triggering interrupts.  
+  * Wired is\_policy\_exposed flag to trigger permanently on successful policy retrieval.
 
-- **Task 3.1: Persistence Layer (SqliteSaver)**
-  - Initialized SqliteSaver in cli/main.py to allow the graph to remember its state across process restarts.
-- **Task 3.2: The Interrupt Hook**
-  - Replaced the "Case B" ToolMessage stub in GatekeeperNode with a formal interrupt() call.
-- **Task 3.3: Configuration Migration**
-  - Moved the role field from AgentState to the config\["configurable"\] object to ensure it is provided by the trusted host environment.
-- **Task 3.4: Approval Reset Logic**
-  - Modified S3ToolNode to reset is_human_approved to False immediately after execution to prevent "Approval Carryover."
+## **Phase 3: The Response Wall (Current)**
 
-## **Phase 3: Integration & Sanitization (Current)**
+**Milestone 5: Sanitization & Redaction**
 
-**Milestone 4: Storage & Policy Wiring**
+*Objective: Ensure the LLM and User only see scrubbed, safe data.*
 
-- **Task 4.1: MinIO Infrastructure Setup**
-  - Configure docker-compose.yml with a MinIO service and a seeding script to create public-data and restricted-confidential buckets.
-- **Task 4.2: Live Boto3 Tool Integration**
-  - Replace hardcoded mocks in src/tools/s3_tools.py with real boto3.client calls using the MinIO endpoint_url.
-- **Task 4.3: Policy Exposure & Tagging Logic**
-  - Wire the is_policy_exposed flag in AgentState to trigger True if get_bucket_policy successfully retrieves data.
-  - Implement the "Pre-Flight" check in GatekeeperNode using boto3.get_bucket_tagging to detect classification: restricted.
+* **Task 5.1: ResponseSanitizerNode Implementation**  
+  * Insert the new node into the graph topology between S3ToolNode and AssistantNode.  
+* **Task 5.2: Error Masking**  
+  * Logic: If role \== "user" and a tool returns 403 Forbidden, rewrite the output to "Error: Bucket not found".  
+  * Goal: Prevent bucket existence discovery via error messages.  
+* **Task 5.3: Data Redaction Engine**  
+  * Implement recursive scrubbing for ARNs, AccountIDs, and Owner IDs in tool outputs.  
+  * Ensure compatibility with MinIO's normalized JSON structures (handling both strings and lists).  
+* **Task 5.4: Sanitization Validation**  
+  * Create tests/test\_sanitizer.py to verify that sensitive infrastructure details never reach the LLM context.  
+* **Task 5.5: Final Continuity & Audit Test**  
+  * Verify the full flow: Admin Request \-\> Interrupt \-\> Approval \-\> Execution \-\> Sanitization \-\> Scrubbed Response.
 
-**Milestone 5: The Sanitizer & Response Wall**
-
-- **Task 5.1: ResponseSanitizerNode Implementation**
-  - Create a new node that executes after S3ToolNode but before returning to the AssistantNode.
-- **Task 5.2: Error Masking (The "User Wall")**
-  - Implement logic to catch 403 Forbidden errors for "user" roles and rewrite them as "Error: Bucket not found."
-- **Task 5.3: Data Redaction (The "Scrubber")**
-  - Implement key-based redaction to scrub sensitive fields (ARNs, AccountIDs) from successful tool outputs before they reach the LLM or user.
-
-## **Phase 4: Observability & Audit (Future)**
-
-**Milestone 6: Observability & Forensic Audit**
-
-_Objective: Ensure every decision is traceable for security audits._
-
-- **Task 6.1: LangSmith Trace Audits**
-  - Configure LangSmith for "Security Forensics" to track exactly why the Gatekeeper permitted or denied an action.
-- **Task 6.2: Security Tagging**
-  - Implement automatic tagging of UnauthorizedAccessAttempt and policy_exposed: true in LangSmith traces for high-priority security review.
-
-##
+## 
