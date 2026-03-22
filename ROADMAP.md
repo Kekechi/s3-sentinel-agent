@@ -1,43 +1,61 @@
-## **🗺️ ROADMAP.md: Strategic Implementation Path**
+# **🗺️ ROADMAP.md: Strategic Implementation Path**
 
-## **Phase 1: Foundations & Security Logic (Complete)**
+This document tracks the evolution of the **S3-Sentinel-Graph**, from the initial structural skeleton to the finalized security-hardened and observable system.
 
-* **Milestone 1: The Skeleton** ✅  
-  * Defined AgentState and established the core StateGraph structure.  
-  * Verified basic routing and tool binding.  
-* **Milestone 2: The Gatekeeper** ✅  
-  * Implemented hard-coded Python Role-Based Access Control (RBAC).  
-  * Established "fail-closed" defaults for unauthorized tool requests.  
-* **Milestone 3: The Admin HITL** ✅  
-  * Integrated SqliteSaver for session persistence.  
-  * Implemented LangGraph interrupt() for out-of-band Admin approvals.  
-  * Migrated role to trusted configuration to prevent prompt injection.
+## ---
 
-## **Phase 2: Infrastructure & Integration (Complete)**
+**Phase 1: Logic & Persistence (Complete)**
 
-* **Milestone 4: Storage & Policy Wiring** ✅  
-  * Deployed MinIO S3-compatible backend via Docker Compose.  
-  * Integrated boto3 tools with live infrastructure.  
-  * Implemented **Metadata-Driven Gates**: Gatekeeper now checks bucket tags (classification: restricted) before triggering interrupts.  
-  * Wired is\_policy\_exposed flag to trigger permanently on successful policy retrieval.
+## **Milestone 1: The Skeleton ✅**
 
-## **Phase 3: The Response Wall (Current)**
+* **Goal**: Establish the LangGraph state machine and message flow.  
+* **Key Deliverables**: AgentState definition, graph topology (Assistant → Gatekeeper → Tool), and basic CLI loop.  
+* **Outcome**: Verified that the graph can route messages and call hardcoded stubs.
 
-**Milestone 5: Sanitization & Redaction**
+## **Milestone 2: The Gatekeeper ✅**
 
-*Objective: Ensure the LLM and User only see scrubbed, safe data.*
+* **Goal**: Implement hardcoded Python RBAC logic.  
+* **Key Deliverables**: GatekeeperNode logic enforcing Guest vs. Admin restrictions on sensitive tools.  
+* **Outcome**: Established the "Fail-Closed" security model where decision authority lives in Python, not the LLM.
 
-* **Task 5.1: ResponseSanitizerNode Implementation**  
-  * Insert the new node into the graph topology between S3ToolNode and AssistantNode.  
-* **Task 5.2: Error Masking**  
-  * Logic: If role \== "user" and a tool returns 403 Forbidden, rewrite the output to "Error: Bucket not found".  
-  * Goal: Prevent bucket existence discovery via error messages.  
-* **Task 5.3: Data Redaction Engine**  
-  * Implement recursive scrubbing for ARNs, AccountIDs, and Owner IDs in tool outputs.  
-  * Ensure compatibility with MinIO's normalized JSON structures (handling both strings and lists).  
-* **Task 5.4: Sanitization Validation**  
-  * Create tests/test\_sanitizer.py to verify that sensitive infrastructure details never reach the LLM context.  
-* **Task 5.5: Final Continuity & Audit Test**  
-  * Verify the full flow: Admin Request \-\> Interrupt \-\> Approval \-\> Execution \-\> Sanitization \-\> Scrubbed Response.
+## **Milestone 3: The Admin HITL ✅**
+
+* **Goal**: Integrate human-in-the-loop (HITL) approvals.  
+* **Key Deliverables**: SqliteSaver integration, LangGraph interrupt() for sensitive Admin actions, and persistent thread management.  
+* **Outcome**: Successful "Continuity Test"—the graph pauses for approval and resumes from a saved state.
+
+## ---
+
+**Phase 2: Infrastructure & Sanitization (Complete)**
+
+## **Milestone 4: Storage & Policy Wiring ✅**
+
+* **Goal**: Connect the graph to a live infrastructure backend.  
+* **Key Deliverables**: MinIO Docker service, boto3 tool integration, and **Metadata-Driven Gates** (using S3 Object Tags to trigger interrupts).  
+* **Outcome**: The system now makes security decisions based on real-time infrastructure metadata (e.g., classification: restricted).
+
+## **Milestone 5: The Response Wall ✅**
+
+* **Goal**: Prevent information leakage through tool outputs and error messages.  
+* **Key Deliverables**: ResponseSanitizerNode implementation.  
+* **Key Learnings**:  
+  * **Error Masking**: Rewriting $403$ Forbidden to "Bucket not found" for users to prevent discovery.  
+  * **Recursive Redaction**: Walking normalized JSON (handling MinIO's string-to-list conversions) to scrub ARNs, Account IDs, and Owner metadata.  
+  * **ID Preservation**: Ensuring the Sanitizer preserves message.id to prevent orphaned ToolMessages in the LLM context.  
+* **Outcome**: Full "Sanitization Boundary" established between raw tool output and the LLM/User.
+
+## ---
+
+**Phase 3: Observability & Forensic Audit (Current)**
+
+## **Milestone 6: The Nervous System (Current) 🟦**
+
+* **Goal**: Implement deep observability and security event logging.  
+* **Task 6.1: LangSmith Instrumentation**: Add @traceable decorators to security-critical nodes (GatekeeperNode, ResponseSanitizerNode).  
+* **Task 6.2: Security Event Tagging**:  
+  * Tag traces with security\_event: access\_denied when is\_blocked is True.  
+  * Tag traces with policy\_exposed: true when high-water mark is hit.  
+* **Task 6.3: Metadata Forensics**: Push role, thread\_id, and is\_human\_approved status into LangSmith metadata fields for audit filtering.  
+* **Task 6.4: Audit Validation**: Create tests/test\_audit.py to ensure that even "redacted" runs are fully reconstructible by an auditor in the backend.
 
 ## 
